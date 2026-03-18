@@ -810,22 +810,42 @@ function setGasUrl(url) {
   localStorage.setItem(LS_KEY_GAS_URL, url);
 }
 
-// JSONP でGASにリクエスト（CORS回避）
+// GASへのリクエスト（fetch + no-cors → iframeフォーム送信方式）
 function gasRequest(url, params) {
   return new Promise((resolve, reject) => {
-    const cbName = 'gasCallback_' + Date.now();
-    window[cbName] = (data) => {
-      delete window[cbName];
-      document.getElementById(cbName)?.remove();
-      resolve(data);
-    };
-    const qStr = Object.entries(params||{}).map(([k,v])=>`${k}=${encodeURIComponent(v)}`).join('&');
-    const script = document.createElement('script');
-    script.id = cbName;
-    script.src = url + (qStr ? '?' + qStr : '') + (qStr ? '&' : '?') + 'callback=' + cbName;
-    script.onerror = () => { delete window[cbName]; script.remove(); reject(new Error('GAS接続失敗')); };
-    document.head.appendChild(script);
-    setTimeout(() => { if(window[cbName]) { delete window[cbName]; script.remove(); reject(new Error('タイムアウト')); }}, 15000);
+    // GETリクエストはfetchで直接（loadのみ）
+    if (params.action === 'load' || params.action === 'ping') {
+      const qStr = Object.entries(params).map(([k,v])=>`${k}=${encodeURIComponent(v)}`).join('&');
+      fetch(url + '?' + qStr, { redirect: 'follow' })
+        .then(r => r.text())
+        .then(t => { try { resolve(JSON.parse(t)); } catch(e) { reject(new Error('parse error')); }})
+        .catch(reject);
+    } else {
+      // saveはiframeフォーム送信（CORS非対象）
+      const iframeId = 'gasIframe_' + Date.now();
+      const formId = 'gasForm_' + Date.now();
+      const iframe = document.createElement('iframe');
+      iframe.name = iframeId;
+      iframe.style.display = 'none';
+      document.body.appendChild(iframe);
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = url;
+      form.target = iframeId;
+      form.style.display = 'none';
+      Object.entries(params).forEach(([k,v]) => {
+        const inp = document.createElement('input');
+        inp.type = 'hidden'; inp.name = k; inp.value = v;
+        form.appendChild(inp);
+      });
+      document.body.appendChild(form);
+      iframe.onload = () => {
+        setTimeout(() => { iframe.remove(); form.remove(); }, 1000);
+        resolve({ ok: true });
+      };
+      setTimeout(() => { iframe.remove(); form.remove(); resolve({ ok: true }); }, 8000);
+      form.submit();
+    }
   });
 }
 
@@ -838,12 +858,7 @@ async function syncToSheets(showMsg = true) {
     const dataStr = JSON.stringify({
       ALL_DATA, extraStaff: window.extraStaff||[], pinnedStaff: window.pinnedStaff||[]
     });
-    // データを2000文字ずつチャンク分割してGETで送信（URL長さ制限対策）
-    const CHUNK = 2000;
-    const params = { action: 'save', user: getCurrentUser()||'不明' };
-    for (let i = 0; i * CHUNK < dataStr.length; i++) {
-      params['data_' + i] = dataStr.slice(i * CHUNK, (i + 1) * CHUNK);
-    }
+    const params = { action: 'save', user: getCurrentUser()||'不明', data: dataStr };
     const json = await gasRequest(url, params);
     if (json.ok) {
       if (btn) { btn.textContent = '✓ 同期済み'; setTimeout(() => { btn.textContent = '☁️ 同期'; btn.disabled = false; }, 2000); }
