@@ -810,28 +810,35 @@ function setGasUrl(url) {
   localStorage.setItem(LS_KEY_GAS_URL, url);
 }
 
+// JSONP でGASにリクエスト（CORS回避）
+function gasRequest(url, params) {
+  return new Promise((resolve, reject) => {
+    const cbName = 'gasCallback_' + Date.now();
+    window[cbName] = (data) => {
+      delete window[cbName];
+      document.getElementById(cbName)?.remove();
+      resolve(data);
+    };
+    const qStr = Object.entries(params||{}).map(([k,v])=>`${k}=${encodeURIComponent(v)}`).join('&');
+    const script = document.createElement('script');
+    script.id = cbName;
+    script.src = url + (qStr ? '?' + qStr : '') + (qStr ? '&' : '?') + 'callback=' + cbName;
+    script.onerror = () => { delete window[cbName]; script.remove(); reject(new Error('GAS接続失敗')); };
+    document.head.appendChild(script);
+    setTimeout(() => { if(window[cbName]) { delete window[cbName]; script.remove(); reject(new Error('タイムアウト')); }}, 15000);
+  });
+}
+
 async function syncToSheets(showMsg = true) {
   const url = getGasUrl();
   if (!url) return;
   const btn = document.getElementById('syncBtn');
-  if (btn) { btn.textContent = '🔄 同期中...'; btn.disabled = true; }
+  if (showMsg && btn) { btn.textContent = '🔄 同期中...'; btn.disabled = true; }
   try {
-    const payload = {
-      action: 'save',
-      user: getCurrentUser() || '不明',
-      data: {
-        ALL_DATA:    ALL_DATA,
-        extraStaff:  window.extraStaff  || [],
-        pinnedStaff: window.pinnedStaff || [],
-      }
-    };
-    const res = await fetch(url, {
-      method: 'POST',
-      redirect: 'follow',
-      body: JSON.stringify(payload)
+    const dataStr = JSON.stringify({
+      ALL_DATA, extraStaff: window.extraStaff||[], pinnedStaff: window.pinnedStaff||[]
     });
-    const text = await res.text();
-    const json = JSON.parse(text);
+    const json = await gasRequest(url, { action: 'save', user: getCurrentUser()||'不明', data: dataStr });
     if (json.ok) {
       if (btn) { btn.textContent = '✓ 同期済み'; setTimeout(() => { btn.textContent = '☁️ 同期'; btn.disabled = false; }, 2000); }
       if (showMsg) updateSyncStatus('✅ Google Sheetsに保存しました', '#22c55e');
@@ -850,9 +857,7 @@ async function loadFromSheets(showMsg = true) {
   const btn = document.getElementById('syncLoadBtn');
   if (showMsg && btn) { btn.textContent = '🔄 読込中...'; btn.disabled = true; }
   try {
-    const res = await fetch(`${url}?action=load`, { redirect: 'follow' });
-    const text = await res.text();
-    const json = JSON.parse(text);
+    const json = await gasRequest(url, { action: 'load' });
     if (!json.ok) throw new Error(json.error);
     const d = json.data;
     if (d.ALL_DATA)    { Object.assign(ALL_DATA, d.ALL_DATA.value); }
