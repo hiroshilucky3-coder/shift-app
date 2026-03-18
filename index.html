@@ -838,7 +838,13 @@ async function syncToSheets(showMsg = true) {
     const dataStr = JSON.stringify({
       ALL_DATA, extraStaff: window.extraStaff||[], pinnedStaff: window.pinnedStaff||[]
     });
-    const json = await gasRequest(url, { action: 'save', user: getCurrentUser()||'不明', data: dataStr });
+    // データを2000文字ずつチャンク分割してGETで送信（URL長さ制限対策）
+    const CHUNK = 2000;
+    const params = { action: 'save', user: getCurrentUser()||'不明' };
+    for (let i = 0; i * CHUNK < dataStr.length; i++) {
+      params['data_' + i] = dataStr.slice(i * CHUNK, (i + 1) * CHUNK);
+    }
+    const json = await gasRequest(url, params);
     if (json.ok) {
       if (btn) { btn.textContent = '✓ 同期済み'; setTimeout(() => { btn.textContent = '☁️ 同期'; btn.disabled = false; }, 2000); }
       if (showMsg) updateSyncStatus('✅ Google Sheetsに保存しました', '#22c55e');
