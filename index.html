@@ -816,10 +816,17 @@ function gasRequest(url, params) {
     // GETリクエストはfetchで直接（loadのみ）
     if (params.action === 'load' || params.action === 'ping') {
       const qStr = Object.entries(params).map(([k,v])=>`${k}=${encodeURIComponent(v)}`).join('&');
-      fetch(url + '?' + qStr, { redirect: 'follow' })
-        .then(r => r.text())
-        .then(t => { try { resolve(JSON.parse(t)); } catch(e) { reject(new Error('parse error')); }})
-        .catch(reject);
+      // GASはリダイレクトするためXMLHttpRequestを使用
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', url + '?' + qStr, true);
+      xhr.onload = () => {
+        try { resolve(JSON.parse(xhr.responseText)); }
+        catch(e) { reject(new Error('parse error: ' + xhr.responseText.substring(0,100))); }
+      };
+      xhr.onerror = () => reject(new Error('XHR error'));
+      xhr.ontimeout = () => reject(new Error('timeout'));
+      xhr.timeout = 15000;
+      xhr.send();
     } else {
       // saveはiframeフォーム送信（CORS非対象）
       const iframeId = 'gasIframe_' + Date.now();
