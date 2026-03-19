@@ -892,8 +892,7 @@ async function boxLoad(showMsg = true) {
 
 async function setupBoxToken() {
   const cur = getBoxToken();
-  const token = prompt('BoxのアクセストークンをBoxの開発者コンソールで生成して貼り付けてください
-（有効期限60分）', cur || '');
+  const token = prompt('BoxのアクセストークンをBoxの開発者コンソールで生成して貼り付けてください（有効期限60分）', cur || '');
   if (token === null) return;
   if (!token.trim()) {
     setBoxToken('');
@@ -1076,8 +1075,7 @@ function addFiscalYear() {
     jobs.push({ name: ROW_UNASSIGNED, days: {} });
     jobs.push({ name: ROW_VACATION,   days: {} });
 
-    fyData[label] = { year: y, month: label, days_in_month: dim, day_of_week: dow, jobs };
-  });
+    fyData[label] = { year: y, month: label, days_in_month: dim, day_of_week: dow, jobs };});
 
   ALL_DATA[nextFY] = fyData;
   buildFySelector();
@@ -1240,7 +1238,7 @@ function exportWeeklyExcel() {
     // 列幅設定
     ws['!cols'] = [
       {wch:24},{wch:28},{wch:7},{wch:7},{wch:7},{wch:7},{wch:7},
-      {wch:7},{wch:7},{wch:7},{wch:7},{wch:7},{wch:7},{wch:7},{wch:7},{wch:8}
+      {wch:24},{wch:28},{wch:7},{wch:7},{wch:7},{wch:7},{wch:7},{wch:7},{wch:7},{wch:7},{wch:7},{wch:7},{wch:7},{wch:7},{wch:7},{wch:8}
     ];
 
     // マージセル
@@ -1680,7 +1678,7 @@ function guideLabelCls(code) {
 function vehi2rows(vehicles) {
   const map = [];
   // 車両コードパターン（これ以外は誘導員扱い）
-  const isVehicle = v => /^[WST][0-9]/.test(v) || /^KT/.test(v) || /^S田/.test(v) || /^483/.test(v) || v==='リース';
+  const isVehicle = v => isVehicleCodeFn(v);
   (vehicles || []).filter(v => !isVehicle(v)).forEach(v => {
     const r = map.find(r => r.code === v);
     if (r) r.qty++;
@@ -2320,8 +2318,7 @@ function renderBulkStaff() {
           : cls==='tanaka' ? 'background:#2d1a00;border:1px solid #8a5a00;color:#fb923c;'
           : 'background:#1a2d4a;border:1px solid #2d4a6b;color:#60a5fa;';
         const leader = i===0 ? '<span style="font-size:9px;color:#ef4444;margin-right:2px">責任者</span>👑' : '👷';
-        const leaderBorder = i===0 ? 'outline:2px solid #ef4444;outline-offset:1px;' : '';
-        return `<span style="${style}${leaderBorder}display:inline-flex;align-items:center;gap:3px;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:600;cursor:pointer" onclick="bToggleStaff('${s.replace(/'/g,"&#39;")}')">${leader}${s} ✕</span>`;
+        const leaderBorder = i===0 ? 'outline:2px solid #ef4444;outline-offset:1px;' : '';return `<span style="${style}${leaderBorder}display:inline-flex;align-items:center;gap:3px;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:600;cursor:pointer" onclick="bToggleStaff('${s.replace(/'/g,"&#39;")}')">${leader}${s} ✕</span>`;
       }).join('')
     : '<span style="color:#4a5568;font-size:11px">（なし）</span>';
   palette.innerHTML = all.map(s => {
