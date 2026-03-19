@@ -810,6 +810,119 @@ function setGasUrl(url) {
   localStorage.setItem(LS_KEY_GAS_URL, url);
 }
 
+// ===================== Box API 同期 =====================
+const BOX_FILE_ID = '2168644758759'; // shift_data.json のファイルID
+let BOX_TOKEN = localStorage.getItem('boxToken') || '';
+
+function getBoxToken() {
+  return localStorage.getItem('boxToken') || '';
+}
+
+function setBoxToken(token) {
+  localStorage.setItem('boxToken', token);
+  BOX_TOKEN = token;
+}
+
+async function boxSave(showMsg = true) {
+  const token = getBoxToken();
+  if (!token) {
+    if (showMsg) updateSyncStatus('⚠️ Boxトークン未設定', '#ef4444');
+    return false;
+  }
+  const btn = document.getElementById('syncBtn');
+  if (showMsg && btn) { btn.textContent = '🔄 同期中...'; btn.disabled = true; }
+  try {
+    const payload = JSON.stringify({
+      version: 'shift_v1',
+      saved_at: new Date().toISOString(),
+      saved_by: getCurrentUser() || '不明',
+      ALL_DATA,
+      extraStaff:  window.extraStaff  || [],
+      pinnedStaff: window.pinnedStaff || [],
+    });
+    const form = new FormData();
+    form.append('file', new Blob([payload], {type:'application/json'}), 'shift_data.json');
+    const res = await fetch(`https://upload.box.com/api/2.0/files/${BOX_FILE_ID}/content`, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token },
+      body: form
+    });
+    if (res.status === 409 || res.ok) {
+      if (btn) { btn.textContent = '✓ 同期済み'; setTimeout(() => { btn.textContent = '☁️ 同期'; btn.disabled = false; }, 2000); }
+      if (showMsg) updateSyncStatus('✅ Boxに保存しました', '#22c55e');
+      return true;
+    } else if (res.status === 401) {
+      setBoxToken('');
+      updateSyncButtons();
+      if (showMsg) updateSyncStatus('⚠️ トークン期限切れ。再設定してください', '#ef4444');
+      return false;
+    } else {
+      throw new Error('status: ' + res.status);
+    }
+  } catch(err) {
+    if (btn) { btn.textContent = '☁️ 同期'; btn.disabled = false; }
+    if (showMsg) updateSyncStatus('⚠️ 保存失敗: ' + err.message, '#ef4444');
+    return false;
+  }
+}
+
+async function boxLoad(showMsg = true) {
+  const token = getBoxToken();
+  if (!token) return false;
+  const btn = document.getElementById('syncLoadBtn');
+  if (showMsg && btn) { btn.textContent = '🔄 読込中...'; btn.disabled = true; }
+  try {
+    const res = await fetch(`https://api.box.com/2.0/files/${BOX_FILE_ID}/content`, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (res.status === 401) {
+      setBoxToken('');
+      updateSyncButtons();
+      if (showMsg) updateSyncStatus('⚠️ トークン期限切れ。再設定してください', '#ef4444');
+      return false;
+    }
+    if (!res.ok) throw new Error('status: ' + res.status);
+    const data = await res.json();
+    if (data.ALL_DATA) Object.assign(ALL_DATA, data.ALL_DATA);
+    if (data.extraStaff)  window.extraStaff  = data.extraStaff;
+    if (data.pinnedStaff) window.pinnedStaff = data.pinnedStaff;
+    saveToStorage();
+    buildFySelector(); buildFilters(); renderCal();
+    const now = new Date();
+    const t = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+    const statusEl = document.getElementById('syncStatus');
+    if (statusEl) { statusEl.textContent = `☁️ 最終取得 ${t}`; statusEl.style.color = '#4ade80'; }
+    if (showMsg) updateSyncStatus(`✅ 読み込み完了（${data.saved_by||'不明'}が更新）`, '#22c55e');
+    if (btn) { btn.textContent = '📥 最新取得'; btn.disabled = false; }
+    return true;
+  } catch(err) {
+    if (showMsg) updateSyncStatus('⚠️ 読み込み失敗: ' + err.message, '#ef4444');
+    if (btn) { btn.textContent = '📥 最新取得'; btn.disabled = false; }
+    return false;
+  }
+}
+
+async function setupBoxToken() {
+  const cur = getBoxToken();
+  const token = prompt('BoxのアクセストークンをBoxの開発者コンソールで生成して貼り付けてください
+（有効期限60分）', cur || '');
+  if (token === null) return;
+  if (!token.trim()) {
+    setBoxToken('');
+    updateSyncButtons();
+    return;
+  }
+  setBoxToken(token.trim());
+  updateSyncButtons();
+  // 接続テスト
+  const ok = await boxLoad(false);
+  if (ok) {
+    updateSyncStatus('✅ Box接続成功！', '#22c55e');
+  } else {
+    updateSyncStatus('⚠️ 接続失敗。トークンを確認してください', '#ef4444');
+  }
+}
+
 // GASへのリクエスト（fetch + no-cors → iframeフォーム送信方式）
 function gasRequest(url, params) {
   return new Promise((resolve, reject) => {
@@ -948,18 +1061,18 @@ async function setupGasUrl() {
 }
 
 function updateSyncButtons() {
-  const hasUrl = !!getGasUrl();
+  const hasToken = !!getBoxToken();
   const area = document.getElementById('syncArea');
   if (!area) return;
-  if (hasUrl) {
+  if (hasToken) {
     area.innerHTML = `
-      <button id="syncLoadBtn" onclick="loadFromSheets()" style="background:#1e2535;border:1px solid #3b82f6;color:#60a5fa;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">📥 最新取得</button>
-      <button id="syncBtn" onclick="syncToSheets()" style="background:#1e2535;border:1px solid #22c55e;color:#4ade80;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">☁️ 同期</button>
-      <button onclick="setupGasUrl()" style="background:#1e2535;border:1px solid #4a5568;color:#7c8ea8;border-radius:6px;padding:5px 8px;font-size:11px;cursor:pointer;font-family:inherit" title="設定変更">⚙️</button>
-      <span id="syncStatus" style="font-size:10px;color:#4a5568">☁️ Google Sheets連携中</span>`;
+      <button id="syncLoadBtn" onclick="boxLoad()" style="background:#1e2535;border:1px solid #3b82f6;color:#60a5fa;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">📥 最新取得</button>
+      <button id="syncBtn" onclick="boxSave()" style="background:#1e2535;border:1px solid #22c55e;color:#4ade80;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">☁️ 同期</button>
+      <button onclick="setupBoxToken()" style="background:#1e2535;border:1px solid #4a5568;color:#7c8ea8;border-radius:6px;padding:5px 8px;font-size:11px;cursor:pointer;font-family:inherit" title="Boxトークン再設定">⚙️</button>
+      <span id="syncStatus" style="font-size:10px;color:#4ade80">☁️ Box連携中</span>`;
   } else {
     area.innerHTML = `
-      <button onclick="setupGasUrl()" style="background:#1e2535;border:1px solid #4a5568;color:#7c8ea8;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap" title="Google Sheets連携を設定">☁️ Sheets連携</button>
+      <button onclick="setupBoxToken()" style="background:#1e2535;border:1px solid #0061d5;color:#0061d5;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">📦 Box連携設定</button>
       <span id="syncStatus" style="font-size:10px;color:#4a5568"></span>`;
   }
 }
@@ -1001,8 +1114,8 @@ function saveToStorage() {
     localStorage.setItem(LS_KEY_DATA,   JSON.stringify(ALL_DATA));
     localStorage.setItem(LS_KEY_STAFF,  JSON.stringify(window.extraStaff  || []));
     localStorage.setItem(LS_KEY_PINNED, JSON.stringify(window.pinnedStaff || []));
-    // Google Sheets 自動同期
-    if (getGasUrl()) syncToSheets(false);
+    // Box 自動同期
+    if (getBoxToken()) boxSave(false);
   } catch(e) { console.warn('保存失敗:', e); }
 }
 
@@ -1473,12 +1586,12 @@ function init() {
   updateUserNameBtn();
   updateSyncButtons();
   // 起動時にGoogle Sheetsから自動取得
-  if (getGasUrl()) {
-    loadFromSheets().catch(() => {});
+  if (getBoxToken()) {
+    boxLoad(false).catch(() => {});
     // 30秒おきに自動で最新取得（編集中は停止）
     setInterval(() => {
-      if (!editMode && getGasUrl()) {
-        loadFromSheets(false).catch(() => {});
+      if (!editMode && getBoxToken()) {
+        boxLoad(false).catch(() => {});
       }
     }, 30000);
   }
