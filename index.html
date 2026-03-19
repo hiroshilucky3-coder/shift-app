@@ -796,20 +796,8 @@ function getCurData() { return ALL_DATA[curFY]; }
 const LS_KEY_DATA   = 'shiftAllData_v5';
 const LS_KEY_STAFF  = 'shiftExtraStaff_v5';
 const LS_KEY_PINNED = 'shiftPinnedStaff_v2';
-const LS_KEY_GAS_URL = 'shiftGasUrl_v1';
-
 // GAS URLを直接埋め込み（設定不要）
-const EMBEDDED_GAS_URL = 'https://script.google.com/macros/s/AKfycbx15R4QlFFqldRCV13uPPdL4R2_zP6bnJL9xlCDF6ive222qcowwH6huiOas5FZU2nqGw/exec';
-
 // ===================== Google Sheets 同期 =====================
-function getGasUrl() {
-  return EMBEDDED_GAS_URL || localStorage.getItem(LS_KEY_GAS_URL) || '';
-}
-
-function setGasUrl(url) {
-  localStorage.setItem(LS_KEY_GAS_URL, url);
-}
-
 // ===================== Box API 同期 =====================
 const BOX_FILE_ID = '2168644758759'; // shift_data.json のファイルID
 let BOX_TOKEN = localStorage.getItem('boxToken') || '';
@@ -924,141 +912,17 @@ async function setupBoxToken() {
 }
 
 // GASへのリクエスト（fetch + no-cors → iframeフォーム送信方式）
-function gasRequest(url, params) {
-  return new Promise((resolve, reject) => {
-    // GETリクエストはfetchで直接（loadのみ）
-    if (params.action === 'load' || params.action === 'ping') {
-      const qStr = Object.entries(params).map(([k,v])=>`${k}=${encodeURIComponent(v)}`).join('&');
-      // GASはリダイレクトするためXMLHttpRequestを使用
-      const xhr = new XMLHttpRequest();
-      xhr.open('GET', url + '?' + qStr, true);
-      xhr.onload = () => {
-        try { resolve(JSON.parse(xhr.responseText)); }
-        catch(e) { reject(new Error('parse error: ' + xhr.responseText.substring(0,100))); }
-      };
-      xhr.onerror = () => reject(new Error('XHR error'));
-      xhr.ontimeout = () => reject(new Error('timeout'));
-      xhr.timeout = 15000;
-      xhr.send();
-    } else {
-      // saveはiframeフォーム送信（CORS非対象）
-      const iframeId = 'gasIframe_' + Date.now();
-      const formId = 'gasForm_' + Date.now();
-      const iframe = document.createElement('iframe');
-      iframe.name = iframeId;
-      iframe.style.display = 'none';
-      document.body.appendChild(iframe);
-      const form = document.createElement('form');
-      form.method = 'POST';
-      form.action = url;
-      form.target = iframeId;
-      form.style.display = 'none';
-      Object.entries(params).forEach(([k,v]) => {
-        const inp = document.createElement('input');
-        inp.type = 'hidden'; inp.name = k; inp.value = v;
-        form.appendChild(inp);
-      });
-      document.body.appendChild(form);
-      iframe.onload = () => {
-        setTimeout(() => { iframe.remove(); form.remove(); }, 1000);
-        resolve({ ok: true });
-      };
-      setTimeout(() => { iframe.remove(); form.remove(); resolve({ ok: true }); }, 8000);
-      form.submit();
-    }
-  });
-}
 
-async function syncToSheets(showMsg = true) {
-  const url = getGasUrl();
-  if (!url) return;
-  const btn = document.getElementById('syncBtn');
-  if (showMsg && btn) { btn.textContent = '🔄 同期中...'; btn.disabled = true; }
-  try {
-    const dataStr = JSON.stringify({
-      ALL_DATA, extraStaff: window.extraStaff||[], pinnedStaff: window.pinnedStaff||[]
-    });
-    const params = { action: 'save', user: getCurrentUser()||'不明', data: dataStr };
-    const json = await gasRequest(url, params);
-    if (json.ok) {
-      if (btn) { btn.textContent = '✓ 同期済み'; setTimeout(() => { btn.textContent = '☁️ 同期'; btn.disabled = false; }, 2000); }
-      if (showMsg) updateSyncStatus('✅ Google Sheetsに保存しました', '#22c55e');
-    } else {
-      throw new Error(json.error || '不明なエラー');
-    }
-  } catch(err) {
-    if (btn) { btn.textContent = '☁️ 同期'; btn.disabled = false; }
-    if (showMsg) updateSyncStatus('⚠️ 同期失敗: ' + err.message, '#ef4444');
-  }
-}
 
-async function loadFromSheets(showMsg = true) {
-  const url = getGasUrl();
-  if (!url) return false;
-  const btn = document.getElementById('syncLoadBtn');
-  if (showMsg && btn) { btn.textContent = '🔄 読込中...'; btn.disabled = true; }
-  try {
-    const json = await gasRequest(url, { action: 'load' });
-    if (!json.ok) throw new Error(json.error);
-    const d = json.data;
-    if (d.ALL_DATA)    { Object.assign(ALL_DATA, d.ALL_DATA.value); }
-    if (d.extraStaff)  window.extraStaff  = d.extraStaff.value  || [];
-    if (d.pinnedStaff) window.pinnedStaff = d.pinnedStaff.value || [];
-    saveToStorage();
-    buildFySelector();
-    buildFilters();
-    renderCal();
-    // 最終取得時刻を表示
-    const now = new Date();
-    const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
-    const statusEl = document.getElementById('syncStatus');
-    if (statusEl) {
-      statusEl.textContent = `☁️ 最終取得 ${timeStr}`;
-      statusEl.style.color = '#4ade80';
-    }
-    if (showMsg) updateSyncStatus(`✅ 読み込み完了 (${d.ALL_DATA?.updated_by || '不明'}が更新)`, '#22c55e');
-    if (btn) { btn.textContent = '📥 最新取得'; btn.disabled = false; }
-    return true;
-  } catch(err) {
-    if (showMsg) updateSyncStatus('⚠️ 読み込み失敗: ' + err.message, '#ef4444');
-    if (btn) { btn.textContent = '📥 最新取得'; btn.disabled = false; }
-    return false;
-  }
-}
 
 function updateSyncStatus(msg, color) {
   const el = document.getElementById('syncStatus');
   if (!el) return;
   el.textContent = msg;
   el.style.color = color;
-  setTimeout(() => { el.textContent = getGasUrl() ? '☁️ Google Sheets連携中' : ''; el.style.color = '#4a5568'; }, 4000);
+  setTimeout(() => { el.textContent = getBoxToken() ? '☁️ Box連携中' : ''; el.style.color = '#4a5568'; }, 4000);
 }
 
-async function setupGasUrl() {
-  const cur = getGasUrl();
-  const url = prompt('Google Apps ScriptのデプロイURLを入力してください', cur || '');
-  if (url === null) return;
-  if (!url.trim()) {
-    if (confirm('Google Sheets連携を解除しますか？')) {
-      setGasUrl('');
-      updateSyncStatus('', '');
-      updateSyncButtons();
-    }
-    return;
-  }
-  // 接続テスト
-  try {
-    const res = await fetch(`${url.trim()}?action=ping`);
-    const json = await res.json();
-    if (json.ok) {
-      setGasUrl(url.trim());
-      updateSyncButtons();
-      updateSyncStatus('✅ 接続成功！Google Sheets連携を設定しました', '#22c55e');
-    } else throw new Error('pingに失敗');
-  } catch(e) {
-    alert('接続に失敗しました。URLを確認してください。\n' + e.message);
-  }
-}
 
 function updateSyncButtons() {
   const hasToken = !!getBoxToken();
